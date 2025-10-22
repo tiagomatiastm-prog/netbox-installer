@@ -63,6 +63,10 @@ sudo ./install-netbox.sh
 
 Voir le fichier [DEPLOYMENT.md](DEPLOYMENT.md) pour les instructions détaillées.
 
+## Migration vers un autre serveur
+
+Pour migrer une instance NetBox existante vers un nouveau serveur, consultez le guide complet [MIGRATION.md](MIGRATION.md).
+
 ### Résumé rapide
 
 1. **Préparer l'inventaire**
@@ -113,7 +117,9 @@ netbox-installer/
 ├── templates/
 │   └── configuration.py.j2    # Template de configuration NetBox
 ├── README.md                  # Ce fichier
-└── DEPLOYMENT.md              # Guide de déploiement Ansible
+├── DEPLOYMENT.md              # Guide de déploiement Ansible
+├── REVERSE_PROXY.md           # Guide de configuration reverse proxy
+└── MIGRATION.md               # Guide de migration vers un autre serveur
 ```
 
 ## Gestion des services

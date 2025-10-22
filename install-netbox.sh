@@ -63,7 +63,7 @@ generate_credentials() {
 
     DB_PASSWORD=$(generate_password)
     REDIS_PASSWORD=$(generate_password)
-    SECRET_KEY=$(openssl rand -base64 50 | tr -d "=+/")
+    SECRET_KEY=$(openssl rand -base64 50 | tr -d "=+/\n" | head -c 50)
     SUPERUSER_PASSWORD=$(generate_password)
 
     log "Identifiants générés avec succès"

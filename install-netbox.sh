@@ -167,8 +167,8 @@ configure_netbox() {
     # Copier le fichier de configuration
     cp netbox/netbox/configuration_example.py netbox/netbox/configuration.py
 
-    # Configurer la base de données
-    cat > netbox/netbox/configuration.py << EOF
+    # Configurer la base de données avec protection des variables
+    cat > netbox/netbox/configuration.py << 'CONFIGEOF'
 # NetBox Configuration
 import os
 
@@ -177,7 +177,7 @@ ALLOWED_HOSTS = ['*']
 DATABASE = {
     'NAME': 'netbox',
     'USER': 'netbox',
-    'PASSWORD': '$DB_PASSWORD',
+    'PASSWORD': 'DB_PASSWORD_PLACEHOLDER',
     'HOST': 'localhost',
     'PORT': '',
     'CONN_MAX_AGE': 300,
@@ -187,20 +187,20 @@ REDIS = {
     'tasks': {
         'HOST': 'localhost',
         'PORT': 6379,
-        'PASSWORD': '$REDIS_PASSWORD',
+        'PASSWORD': 'REDIS_PASSWORD_PLACEHOLDER',
         'DATABASE': 0,
         'SSL': False,
     },
     'caching': {
         'HOST': 'localhost',
         'PORT': 6379,
-        'PASSWORD': '$REDIS_PASSWORD',
+        'PASSWORD': 'REDIS_PASSWORD_PLACEHOLDER',
         'DATABASE': 1,
         'SSL': False,
     }
 }
 
-SECRET_KEY = '$SECRET_KEY'
+SECRET_KEY = 'SECRET_KEY_PLACEHOLDER'
 
 # Désactiver le mode debug en production
 DEBUG = False
@@ -208,7 +208,12 @@ DEBUG = False
 # Configuration des médias
 MEDIA_ROOT = os.path.join(os.path.dirname(__file__), 'media')
 
-EOF
+CONFIGEOF
+
+    # Remplacer les placeholders par les vraies valeurs
+    sed -i "s/DB_PASSWORD_PLACEHOLDER/$DB_PASSWORD/g" netbox/netbox/configuration.py
+    sed -i "s/REDIS_PASSWORD_PLACEHOLDER/$REDIS_PASSWORD/g" netbox/netbox/configuration.py
+    sed -i "s/SECRET_KEY_PLACEHOLDER/$SECRET_KEY/g" netbox/netbox/configuration.py
 
     log "Fichier de configuration créé"
 }

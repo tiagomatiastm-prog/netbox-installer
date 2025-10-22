@@ -1,0 +1,38 @@
+# NetBox Configuration
+import os
+
+ALLOWED_HOSTS = ['*']
+
+DATABASE = {
+    'NAME': 'netbox',
+    'USER': 'netbox',
+    'PASSWORD': '{{ db_password }}',
+    'HOST': 'localhost',
+    'PORT': '',
+    'CONN_MAX_AGE': 300,
+}
+
+REDIS = {
+    'tasks': {
+        'HOST': 'localhost',
+        'PORT': 6379,
+        'PASSWORD': '{{ redis_password }}',
+        'DATABASE': 0,
+        'SSL': False,
+    },
+    'caching': {
+        'HOST': 'localhost',
+        'PORT': 6379,
+        'PASSWORD': '{{ redis_password }}',
+        'DATABASE': 1,
+        'SSL': False,
+    }
+}
+
+SECRET_KEY = '{{ secret_key }}'
+
+# Désactiver le mode debug en production
+DEBUG = False
+
+# Configuration des médias
+MEDIA_ROOT = os.path.join(os.path.dirname(__file__), 'media')

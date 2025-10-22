@@ -1,0 +1,365 @@
+---
+- name: Déploiement automatique de NetBox
+  hosts: netbox_servers
+  become: yes
+  gather_facts: yes
+
+  vars:
+    netbox_version: "4.1"
+    netbox_port: 8080
+    install_dir: "/opt/netbox"
+    log_file: "/var/log/netbox-installation.log"
+    credentials_file: "{{ ansible_env.HOME }}/netbox-credentials.md"
+
+  tasks:
+    - name: Vérifier que le système est Ubuntu 24.04
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == "Ubuntu"
+          - ansible_distribution_version is version('24.04', '>=')
+        fail_msg: "Ce playbook nécessite Ubuntu 24.04 ou supérieur"
+        success_msg: "Système d'exploitation compatible détecté"
+
+    - name: Générer les mots de passe aléatoires
+      ansible.builtin.set_fact:
+        db_password: "{{ lookup('password', '/dev/null length=25 chars=ascii_letters,digits') }}"
+        redis_password: "{{ lookup('password', '/dev/null length=25 chars=ascii_letters,digits') }}"
+        superuser_password: "{{ lookup('password', '/dev/null length=25 chars=ascii_letters,digits') }}"
+        secret_key: "{{ lookup('password', '/dev/null length=50 chars=ascii_letters,digits') }}"
+
+    - name: Mise à jour du système
+      ansible.builtin.apt:
+        update_cache: yes
+        upgrade: dist
+        cache_valid_time: 3600
+
+    - name: Installation des dépendances système
+      ansible.builtin.apt:
+        name:
+          - python3
+          - python3-pip
+          - python3-venv
+          - python3-dev
+          - build-essential
+          - libxml2-dev
+          - libxslt1-dev
+          - libffi-dev
+          - libpq-dev
+          - libssl-dev
+          - zlib1g-dev
+          - postgresql
+          - postgresql-contrib
+          - redis-server
+          - git
+          - nginx
+          - supervisor
+          - curl
+          - wget
+        state: present
+
+    - name: Démarrer et activer PostgreSQL
+      ansible.builtin.systemd:
+        name: postgresql
+        state: started
+        enabled: yes
+
+    - name: Créer la base de données NetBox
+      become_user: postgres
+      community.postgresql.postgresql_db:
+        name: netbox
+        state: present
+
+    - name: Créer l'utilisateur PostgreSQL pour NetBox
+      become_user: postgres
+      community.postgresql.postgresql_user:
+        name: netbox
+        password: "{{ db_password }}"
+        db: netbox
+        priv: "ALL"
+        state: present
+
+    - name: Configurer Redis avec mot de passe
+      ansible.builtin.lineinfile:
+        path: /etc/redis/redis.conf
+        regexp: '^#?\s*requirepass'
+        line: "requirepass {{ redis_password }}"
+        state: present
+
+    - name: Redémarrer et activer Redis
+      ansible.builtin.systemd:
+        name: redis-server
+        state: restarted
+        enabled: yes
+
+    - name: Récupérer la dernière version de NetBox
+      ansible.builtin.uri:
+        url: https://api.github.com/repos/netbox-community/netbox/releases/latest
+        return_content: yes
+      register: netbox_release
+
+    - name: Définir la version NetBox
+      ansible.builtin.set_fact:
+        netbox_latest_version: "{{ netbox_release.json.tag_name | regex_replace('^v', '') }}"
+
+    - name: Télécharger NetBox
+      ansible.builtin.get_url:
+        url: "https://github.com/netbox-community/netbox/archive/refs/tags/v{{ netbox_latest_version }}.tar.gz"
+        dest: /tmp/netbox.tar.gz
+        mode: '0644'
+
+    - name: Extraire NetBox
+      ansible.builtin.unarchive:
+        src: /tmp/netbox.tar.gz
+        dest: /opt/
+        remote_src: yes
+        creates: "/opt/netbox-{{ netbox_latest_version }}"
+
+    - name: Créer le lien symbolique vers NetBox
+      ansible.builtin.file:
+        src: "/opt/netbox-{{ netbox_latest_version }}"
+        dest: "{{ install_dir }}"
+        state: link
+
+    - name: Créer le fichier de configuration NetBox
+      ansible.builtin.template:
+        src: configuration.py.j2
+        dest: "{{ install_dir }}/netbox/netbox/configuration.py"
+        mode: '0644'
+
+    - name: Créer l'environnement virtuel Python
+      ansible.builtin.pip:
+        requirements: "{{ install_dir }}/requirements.txt"
+        virtualenv: "{{ install_dir }}/venv"
+        virtualenv_command: python3 -m venv
+
+    - name: Exécuter les migrations de base de données
+      ansible.builtin.command:
+        cmd: "{{ install_dir }}/venv/bin/python {{ install_dir }}/netbox/manage.py migrate"
+        chdir: "{{ install_dir }}/netbox"
+      environment:
+        DJANGO_SETTINGS_MODULE: netbox.settings
+
+    - name: Créer le superutilisateur
+      ansible.builtin.shell: |
+        {{ install_dir }}/venv/bin/python {{ install_dir }}/netbox/manage.py createsuperuser \
+          --username admin \
+          --email admin@localhost \
+          --noinput
+      environment:
+        DJANGO_SUPERUSER_PASSWORD: "{{ superuser_password }}"
+        DJANGO_SETTINGS_MODULE: netbox.settings
+      args:
+        chdir: "{{ install_dir }}/netbox"
+      ignore_errors: yes
+
+    - name: Collecter les fichiers statiques
+      ansible.builtin.command:
+        cmd: "{{ install_dir }}/venv/bin/python {{ install_dir }}/netbox/manage.py collectstatic --noinput"
+        chdir: "{{ install_dir }}/netbox"
+      environment:
+        DJANGO_SETTINGS_MODULE: netbox.settings
+
+    - name: Copier le fichier de configuration Gunicorn
+      ansible.builtin.copy:
+        src: "{{ install_dir }}/contrib/gunicorn.py"
+        dest: "{{ install_dir }}/gunicorn.py"
+        remote_src: yes
+        mode: '0644'
+
+    - name: Configurer le port Gunicorn
+      ansible.builtin.lineinfile:
+        path: "{{ install_dir }}/gunicorn.py"
+        regexp: "^bind = "
+        line: "bind = '127.0.0.1:{{ netbox_port }}'"
+
+    - name: Créer le répertoire de logs NetBox
+      ansible.builtin.file:
+        path: /var/log/netbox
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: '0755'
+
+    - name: Définir les permissions sur le répertoire NetBox
+      ansible.builtin.file:
+        path: "{{ install_dir }}"
+        owner: www-data
+        group: www-data
+        recurse: yes
+
+    - name: Créer la configuration Supervisor pour NetBox
+      ansible.builtin.copy:
+        dest: /etc/supervisor/conf.d/netbox.conf
+        content: |
+          [program:netbox]
+          command={{ install_dir }}/venv/bin/gunicorn --config {{ install_dir }}/gunicorn.py netbox.wsgi
+          directory={{ install_dir }}/netbox
+          user=www-data
+          autostart=true
+          autorestart=true
+          redirect_stderr=true
+          stdout_logfile=/var/log/netbox/netbox.log
+
+          [program:netbox-rq]
+          command={{ install_dir }}/venv/bin/python {{ install_dir }}/netbox/manage.py rqworker
+          directory={{ install_dir }}/netbox
+          user=www-data
+          autostart=true
+          autorestart=true
+          redirect_stderr=true
+          stdout_logfile=/var/log/netbox/netbox-rq.log
+        mode: '0644'
+
+    - name: Recharger la configuration Supervisor
+      ansible.builtin.command: supervisorctl reread
+
+    - name: Mettre à jour Supervisor
+      ansible.builtin.command: supervisorctl update
+
+    - name: Démarrer les services NetBox
+      ansible.builtin.supervisorctl:
+        name: "{{ item }}"
+        state: started
+      loop:
+        - netbox
+        - netbox-rq
+
+    - name: Configurer Nginx pour NetBox
+      ansible.builtin.copy:
+        dest: /etc/nginx/sites-available/netbox
+        content: |
+          server {
+              listen 80;
+              server_name _;
+
+              client_max_body_size 25m;
+
+              location / {
+                  proxy_pass http://127.0.0.1:{{ netbox_port }};
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto $scheme;
+              }
+
+              location /static/ {
+                  alias {{ install_dir }}/netbox/static/;
+              }
+          }
+        mode: '0644'
+
+    - name: Activer le site Nginx
+      ansible.builtin.file:
+        src: /etc/nginx/sites-available/netbox
+        dest: /etc/nginx/sites-enabled/netbox
+        state: link
+
+    - name: Désactiver le site par défaut Nginx
+      ansible.builtin.file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+
+    - name: Tester la configuration Nginx
+      ansible.builtin.command: nginx -t
+
+    - name: Redémarrer et activer Nginx
+      ansible.builtin.systemd:
+        name: nginx
+        state: restarted
+        enabled: yes
+
+    - name: Sauvegarder les credentials dans le fichier Markdown
+      ansible.builtin.copy:
+        dest: "{{ ansible_env.HOME }}/netbox-credentials.md"
+        content: |
+          # NetBox - Informations d'installation
+
+          **Date d'installation:** {{ ansible_date_time.iso8601 }}
+          **Serveur:** {{ ansible_hostname }}
+          **IP:** {{ ansible_default_ipv4.address }}
+
+          ---
+
+          ## Accès NetBox
+
+          - **URL:** http://{{ ansible_default_ipv4.address }}
+          - **Port direct:** http://{{ ansible_default_ipv4.address }}:{{ netbox_port }}
+          - **Utilisateur:** admin
+          - **Mot de passe:** {{ superuser_password }}
+
+          ---
+
+          ## Base de données PostgreSQL
+
+          - **Base de données:** netbox
+          - **Utilisateur:** netbox
+          - **Mot de passe:** {{ db_password }}
+          - **Host:** localhost
+          - **Port:** 5432
+
+          ---
+
+          ## Redis
+
+          - **Mot de passe:** {{ redis_password }}
+          - **Port:** 6379
+
+          ---
+
+          ## Configuration
+
+          - **Répertoire d'installation:** {{ install_dir }}
+          - **Fichier de configuration:** {{ install_dir }}/netbox/netbox/configuration.py
+          - **Secret Key:** {{ secret_key }}
+          - **Logs:** /var/log/netbox/
+
+          ---
+
+          ## Commandes utiles
+
+          ### Gérer les services
+          ```bash
+          # Statut des services NetBox
+          sudo supervisorctl status netbox netbox-rq
+
+          # Redémarrer NetBox
+          sudo supervisorctl restart netbox netbox-rq
+
+          # Logs
+          sudo tail -f /var/log/netbox/netbox.log
+          ```
+
+          ### Gérer Nginx
+          ```bash
+          sudo systemctl status nginx
+          sudo systemctl restart nginx
+          ```
+
+          ### Accéder à la console Django
+          ```bash
+          cd {{ install_dir }}
+          source venv/bin/activate
+          python3 netbox/manage.py shell
+          ```
+
+          ---
+
+          **IMPORTANT:** Conservez ce fichier en lieu sûr !
+        mode: '0600'
+
+    - name: Afficher le résumé de l'installation
+      ansible.builtin.debug:
+        msg:
+          - "=========================================="
+          - "  Installation de NetBox terminée !"
+          - "=========================================="
+          - ""
+          - "URL d'accès: http://{{ ansible_default_ipv4.address }}"
+          - "Port direct: http://{{ ansible_default_ipv4.address }}:{{ netbox_port }}"
+          - ""
+          - "Utilisateur: admin"
+          - "Mot de passe: {{ superuser_password }}"
+          - ""
+          - "Fichier avec tous les identifiants: {{ ansible_env.HOME }}/netbox-credentials.md"
+          - ""
+          - "=========================================="

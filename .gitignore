@@ -1,0 +1,27 @@
+# Credentials et fichiers sensibles
+*-credentials.md
+*-info.txt
+*.log
+
+# Fichiers temporaires
+*.tmp
+*.bak
+*.swp
+*~
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+
+# Ansible
+*.retry
+.vault_pass
+
+# OS
+.DS_Store
+Thumbs.db

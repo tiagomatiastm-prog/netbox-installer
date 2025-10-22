@@ -294,23 +294,41 @@ sudo supervisorctl restart netbox netbox-rq
 
 ### Migration vers une version plus récente de NetBox
 
-Si vous profitez de la migration pour upgrader NetBox :
+**IMPORTANT** : Si les versions source et destination sont différentes, cela peut poser des problèmes de compatibilité de base de données.
+
+**Approche recommandée** :
+
+1. **Mettre à jour le serveur source** vers la version cible AVANT la migration
+2. **Valider** que la mise à jour fonctionne correctement
+3. **Ensuite** faire la migration vers le nouveau serveur
+
+Pour la procédure complète de mise à jour, consultez **[UPGRADE.md](UPGRADE.md)**.
+
+**Résumé rapide** :
 
 ```bash
-# Sur le nouveau serveur, après installation
+# Sur le serveur SOURCE, mettre à jour NetBox d'abord
+sudo /usr/local/bin/netbox-upgrade.sh 4.2.0  # Version cible
+
+# Valider pendant quelques jours
+
+# Puis faire la migration normale vers le nouveau serveur
+# avec la MÊME version installée sur les deux serveurs
+```
+
+**Alternative** (nouvelle installation avec version différente) :
+
+```bash
+# Sur le nouveau serveur, installer la version CIBLE
+# puis appliquer les migrations lors de la restauration
 cd /opt/netbox
 source venv/bin/activate
-
-# Télécharger la nouvelle version
-sudo wget https://github.com/netbox-community/netbox/archive/refs/tags/vX.X.X.tar.gz
-
-# Suivre la procédure officielle d'upgrade
-# https://docs.netbox.dev/en/stable/installation/upgrading/
-
 python3 netbox/manage.py migrate
 python3 netbox/manage.py collectstatic --noinput
 sudo supervisorctl restart netbox netbox-rq
 ```
+
+Voir **[UPGRADE.md](UPGRADE.md)** pour tous les détails.
 
 ### Migration avec plusieurs serveurs (HA)
 

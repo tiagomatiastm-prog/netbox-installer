@@ -119,7 +119,8 @@ netbox-installer/
 ├── README.md                  # Ce fichier
 ├── DEPLOYMENT.md              # Guide de déploiement Ansible
 ├── REVERSE_PROXY.md           # Guide de configuration reverse proxy
-└── MIGRATION.md               # Guide de migration vers un autre serveur
+├── MIGRATION.md               # Guide de migration vers un autre serveur
+└── UPGRADE.md                 # Guide de mise à jour de NetBox
 ```
 
 ## Gestion des services
@@ -192,28 +193,38 @@ sudo -u postgres psql netbox < netbox_backup_20250101.sql
 
 ## Mise à jour de NetBox
 
+Pour mettre à jour NetBox vers une version plus récente, consultez le guide complet [UPGRADE.md](UPGRADE.md).
+
+### Script automatisé de mise à jour
+
 ```bash
+# Installer le script de mise à jour
+curl -fsSL https://raw.githubusercontent.com/tiagomatiastm-prog/netbox-installer/master/UPGRADE.md | grep -A 999 "sudo tee /usr/local/bin/netbox-upgrade.sh" | head -n 100 > /tmp/install-upgrade.sh
+bash /tmp/install-upgrade.sh
+
+# Utilisation
+sudo /usr/local/bin/netbox-upgrade.sh 4.2.0  # Remplacer par la version désirée
+```
+
+### Mise à jour manuelle (résumé)
+
+```bash
+# 1. Sauvegarde complète
+sudo -u postgres pg_dump netbox > /tmp/netbox-backup.sql
+
+# 2. Télécharger et installer la nouvelle version
 cd /opt/netbox
-source venv/bin/activate
-
-# Télécharger la nouvelle version
 sudo wget https://github.com/netbox-community/netbox/archive/refs/tags/vX.X.X.tar.gz
+# ... (voir UPGRADE.md pour la procédure complète)
 
-# Extraire et mettre à jour le lien symbolique
-# ... (suivre la documentation officielle NetBox)
-
-# Mettre à jour les dépendances
-pip install --upgrade -r requirements.txt
-
-# Exécuter les migrations
+# 3. Appliquer les migrations
 python3 netbox/manage.py migrate
 
-# Collecter les fichiers statiques
-python3 netbox/manage.py collectstatic --noinput
-
-# Redémarrer les services
+# 4. Redémarrer
 sudo supervisorctl restart netbox netbox-rq
 ```
+
+**Voir [UPGRADE.md](UPGRADE.md) pour tous les détails**
 
 ## Dépannage
 

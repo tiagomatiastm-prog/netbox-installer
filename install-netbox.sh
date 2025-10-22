@@ -35,9 +35,9 @@ warning() {
     echo -e "${YELLOW}[WARNING]${NC} $1" | tee -a "$LOG_FILE"
 }
 
-# Fonction pour générer un mot de passe aléatoire
+# Fonction pour générer un mot de passe aléatoire (alphanumérique uniquement pour éviter les problèmes avec sed)
 generate_password() {
-    openssl rand -base64 32 | tr -d "=+/" | cut -c1-25
+    tr -dc 'A-Za-z0-9' </dev/urandom | head -c 25
 }
 
 # Vérifications préliminaires
@@ -63,7 +63,7 @@ generate_credentials() {
 
     DB_PASSWORD=$(generate_password)
     REDIS_PASSWORD=$(generate_password)
-    SECRET_KEY=$(openssl rand -base64 50 | tr -d "=+/\n" | head -c 50)
+    SECRET_KEY=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 50)
     SUPERUSER_PASSWORD=$(generate_password)
 
     log "Identifiants générés avec succès"

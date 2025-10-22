@@ -228,6 +228,9 @@ SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 # Configuration reverse proxy
 USE_X_FORWARDED_HOST = True
 USE_X_FORWARDED_PORT = True
+
+# Domaines de confiance pour CSRF (requis pour Django 4+)
+CSRF_TRUSTED_ORIGINS = ['https://netbox.example.com']
 ```
 
 ### 2. Modifier la configuration Nginx sur le serveur NetBox
@@ -307,14 +310,16 @@ sudo tail -f /var/log/haproxy.log      # HAProxy
 
 ## Problèmes courants
 
-### ERR 1: NetBox affiche "Forbidden (403)"
+### ERR 1: NetBox affiche "Forbidden (403)" ou "CSRF verification failed"
 
-**Cause**: `ALLOWED_HOSTS` ne contient pas le nom de domaine
+**Cause**: `ALLOWED_HOSTS` ne contient pas le nom de domaine OU `CSRF_TRUSTED_ORIGINS` manquant (Django 4+)
 
 **Solution**:
 ```bash
 sudo nano /opt/netbox/netbox/netbox/configuration.py
 # Ajouter votre domaine dans ALLOWED_HOSTS
+# ET ajouter CSRF_TRUSTED_ORIGINS pour Django 4+
+CSRF_TRUSTED_ORIGINS = ['https://netbox.example.com']
 sudo supervisorctl restart netbox
 ```
 

@@ -251,6 +251,15 @@ CONFIGEOF
 
         REVERSE_PROXY_CONFIG="${REVERSE_PROXY_CONFIG}# Configuration pour reverse proxy\nUSE_X_FORWARDED_HOST = True\nUSE_X_FORWARDED_PORT = True\n"
 
+        # Ajouter CSRF_TRUSTED_ORIGINS si un nom de domaine est fourni
+        if [ -n "$DOMAIN_NAME" ]; then
+            if [ "$USE_HTTPS" = "true" ]; then
+                REVERSE_PROXY_CONFIG="${REVERSE_PROXY_CONFIG}# Domaines de confiance pour CSRF\nCSRF_TRUSTED_ORIGINS = ['https://$DOMAIN_NAME']\n"
+            else
+                REVERSE_PROXY_CONFIG="${REVERSE_PROXY_CONFIG}# Domaines de confiance pour CSRF\nCSRF_TRUSTED_ORIGINS = ['http://$DOMAIN_NAME']\n"
+            fi
+        fi
+
         # Échapper les newlines pour sed
         REVERSE_PROXY_CONFIG_ESCAPED=$(echo -e "$REVERSE_PROXY_CONFIG" | sed ':a;N;$!ba;s/\n/\\n/g')
         sed -i "s|REVERSE_PROXY_CONFIG_PLACEHOLDER|$REVERSE_PROXY_CONFIG_ESCAPED|g" netbox/netbox/configuration.py

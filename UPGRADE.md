@@ -404,7 +404,7 @@ echo -e "${GREEN}✓ Sauvegarde créée: $BACKUP_DIR${NC}"
 
 # 2. Arrêt des services
 echo -e "${YELLOW}[2/12] Arrêt des services NetBox...${NC}"
-sudo supervisorctl stop netbox netbox-rq
+sudo /usr/bin/supervisorctl stop netbox netbox-rq
 
 # 3. Téléchargement
 echo -e "${YELLOW}[3/12] Téléchargement de NetBox v${NEW_VERSION}...${NC}"
@@ -451,7 +451,7 @@ sudo chown -R netbox:netbox /opt/netbox/netbox/static/
 
 # 11. Redémarrage
 echo -e "${YELLOW}[11/12] Redémarrage des services...${NC}"
-sudo supervisorctl restart netbox netbox-rq
+sudo /usr/bin/supervisorctl restart netbox netbox-rq
 sleep 5
 
 # 12. Vérification

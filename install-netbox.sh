@@ -19,7 +19,17 @@ NETBOX_VERSION="4.1"
 NETBOX_PORT="8080"
 INSTALL_DIR="/opt/netbox"
 LOG_FILE="/var/log/netbox-installation.log"
-CREDENTIALS_FILE="$HOME/netbox-credentials.md"
+
+# Détecter le vrai utilisateur (même si exécuté avec sudo)
+if [ -n "$SUDO_USER" ]; then
+    REAL_USER="$SUDO_USER"
+    REAL_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+else
+    REAL_USER="$USER"
+    REAL_HOME="$HOME"
+fi
+
+CREDENTIALS_FILE="$REAL_HOME/netbox-credentials.md"
 
 # Fonction de logging
 log() {
@@ -430,6 +440,12 @@ python3 netbox/manage.py shell
 EOF
 
     chmod 600 "$CREDENTIALS_FILE"
+
+    # Si exécuté avec sudo, changer le propriétaire du fichier pour l'utilisateur réel
+    if [ -n "$SUDO_USER" ]; then
+        chown "$SUDO_USER:$SUDO_USER" "$CREDENTIALS_FILE"
+    fi
+
     log "Identifiants sauvegardés dans $CREDENTIALS_FILE"
 }
 

@@ -20,6 +20,12 @@ NETBOX_PORT="8080"
 INSTALL_DIR="/opt/netbox"
 LOG_FILE="/var/log/netbox-installation.log"
 
+# Variables pour reverse proxy (peuvent être passées en variables d'environnement)
+BEHIND_REVERSE_PROXY="${BEHIND_REVERSE_PROXY:-false}"
+DOMAIN_NAME="${DOMAIN_NAME:-}"
+USE_HTTPS="${USE_HTTPS:-false}"
+REVERSE_PROXY_NETWORK="${REVERSE_PROXY_NETWORK:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}"
+
 # Détecter le vrai utilisateur (même si exécuté avec sudo)
 if [ -n "$SUDO_USER" ]; then
     REAL_USER="$SUDO_USER"
@@ -177,12 +183,19 @@ configure_netbox() {
     # Copier le fichier de configuration
     cp netbox/netbox/configuration_example.py netbox/netbox/configuration.py
 
+    # Préparer la liste des ALLOWED_HOSTS
+    if [ "$BEHIND_REVERSE_PROXY" = "true" ] && [ -n "$DOMAIN_NAME" ]; then
+        ALLOWED_HOSTS_CONFIG="ALLOWED_HOSTS = ['$DOMAIN_NAME', '$(hostname)', '$(hostname -I | awk '{print $1}' || echo 'localhost')', 'localhost', '127.0.0.1']"
+    else
+        ALLOWED_HOSTS_CONFIG="ALLOWED_HOSTS = ['*']"
+    fi
+
     # Configurer la base de données avec protection des variables
     cat > netbox/netbox/configuration.py << 'CONFIGEOF'
 # NetBox Configuration
 import os
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS_PLACEHOLDER
 
 DATABASE = {
     'NAME': 'netbox',
@@ -218,12 +231,32 @@ DEBUG = False
 # Configuration des médias
 MEDIA_ROOT = os.path.join(os.path.dirname(__file__), 'media')
 
+REVERSE_PROXY_CONFIG_PLACEHOLDER
+
 CONFIGEOF
 
     # Remplacer les placeholders par les vraies valeurs
+    sed -i "s/ALLOWED_HOSTS_PLACEHOLDER/$ALLOWED_HOSTS_CONFIG/g" netbox/netbox/configuration.py
     sed -i "s/DB_PASSWORD_PLACEHOLDER/$DB_PASSWORD/g" netbox/netbox/configuration.py
     sed -i "s/REDIS_PASSWORD_PLACEHOLDER/$REDIS_PASSWORD/g" netbox/netbox/configuration.py
     sed -i "s/SECRET_KEY_PLACEHOLDER/$SECRET_KEY/g" netbox/netbox/configuration.py
+
+    # Ajouter la configuration reverse proxy si nécessaire
+    if [ "$BEHIND_REVERSE_PROXY" = "true" ]; then
+        REVERSE_PROXY_CONFIG=""
+
+        if [ "$USE_HTTPS" = "true" ]; then
+            REVERSE_PROXY_CONFIG="${REVERSE_PROXY_CONFIG}# Configuration pour HTTPS via reverse proxy\nSECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')\n"
+        fi
+
+        REVERSE_PROXY_CONFIG="${REVERSE_PROXY_CONFIG}# Configuration pour reverse proxy\nUSE_X_FORWARDED_HOST = True\nUSE_X_FORWARDED_PORT = True\n"
+
+        # Échapper les newlines pour sed
+        REVERSE_PROXY_CONFIG_ESCAPED=$(echo -e "$REVERSE_PROXY_CONFIG" | sed ':a;N;$!ba;s/\n/\\n/g')
+        sed -i "s|REVERSE_PROXY_CONFIG_PLACEHOLDER|$REVERSE_PROXY_CONFIG_ESCAPED|g" netbox/netbox/configuration.py
+    else
+        sed -i "s/REVERSE_PROXY_CONFIG_PLACEHOLDER//g" netbox/netbox/configuration.py
+    fi
 
     log "Fichier de configuration créé"
 }
@@ -326,7 +359,52 @@ EOF
 setup_nginx() {
     log "Configuration de Nginx..."
 
-    cat > /etc/nginx/sites-available/netbox << EOF
+    # Configuration différente selon si derrière reverse proxy ou non
+    if [ "$BEHIND_REVERSE_PROXY" = "true" ]; then
+        log "Configuration Nginx pour reverse proxy..."
+
+        # Préparer la configuration real_ip pour le reverse proxy
+        REAL_IP_CONFIG=""
+        IFS=',' read -ra NETWORKS <<< "$REVERSE_PROXY_NETWORK"
+        for network in "${NETWORKS[@]}"; do
+            network=$(echo "$network" | xargs)  # Trim whitespace
+            REAL_IP_CONFIG="${REAL_IP_CONFIG}    set_real_ip_from ${network};\n"
+        done
+
+        cat > /etc/nginx/sites-available/netbox << EOF
+server {
+    listen 80;
+    server_name _;
+
+    client_max_body_size 25m;
+
+    # Configuration pour reverse proxy
+    real_ip_header X-Forwarded-For;
+$(echo -e "$REAL_IP_CONFIG")
+
+    location / {
+        proxy_pass http://127.0.0.1:$NETBOX_PORT;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Forwarded-Host \$server_name;
+
+        # Support WebSocket
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    location /static/ {
+        alias $INSTALL_DIR/netbox/static/;
+    }
+}
+EOF
+    else
+        log "Configuration Nginx en mode standalone..."
+
+        cat > /etc/nginx/sites-available/netbox << EOF
 server {
     listen 80;
     server_name _;
@@ -346,6 +424,7 @@ server {
     }
 }
 EOF
+    fi
 
     # Activer le site
     ln -sf /etc/nginx/sites-available/netbox /etc/nginx/sites-enabled/

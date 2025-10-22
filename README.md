@@ -30,10 +30,23 @@ NetBox est une solution open-source de gestion d'infrastructure réseau dévelop
 ### Méthode 1: Installation directe via curl
 
 ```bash
+# Installation standard
 curl -fsSL https://raw.githubusercontent.com/tiagomatiastm-prog/netbox-installer/master/install-netbox.sh | sudo bash
 ```
 
-### Méthode 2: Téléchargement et exécution manuelle
+### Méthode 2: Installation derrière un reverse proxy
+
+```bash
+# Installation avec support reverse proxy HTTPS
+BEHIND_REVERSE_PROXY=true \
+DOMAIN_NAME=netbox.example.com \
+USE_HTTPS=true \
+curl -fsSL https://raw.githubusercontent.com/tiagomatiastm-prog/netbox-installer/master/install-netbox.sh | sudo bash
+```
+
+**Voir [REVERSE_PROXY.md](REVERSE_PROXY.md) pour plus de détails**
+
+### Méthode 3: Téléchargement et exécution manuelle
 
 ```bash
 # Télécharger le script
